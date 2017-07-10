@@ -1,6 +1,8 @@
 #include <stdlib.h>
-#include <error.h>
+#include <string.h>
 #include <argp.h>
+
+#define PROG_NAME "mq"
 
 static char doc[] = "A command line tool to use Posix Message Queues from the shell"
 					"\vCommands:\n"
@@ -12,17 +14,9 @@ static char doc[] = "A command line tool to use Posix Message Queues from the sh
 					 ;
 static char args_doc[] = "COMMAND [ MESSAGE ]";
 
-void usage()
+void usage(const struct argp *argp)
 {
-	printf("usage: mq <command> <args>\n"
-		   "\n"
-		   "mq create <q-name> [-m maxmsg] [-s msgsize]\n"
-		   "mq info <q-name>\n"
-		   "mq unlink <q-name>\n"
-		   "mq recv <q-name> [-n]\n"
-		   "mq send <q-name> [message]\n"
-		   "\n"
-		  );
+	argp_help(argp, stderr, ARGP_HELP_STD_HELP, PROG_NAME);
 }
 
 static struct argp_option options[] = {
@@ -89,6 +83,25 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
 	return 0;
 }
 
+static int mqu_create(const struct arguments *args)
+{
+}
+
+static int mqu_info(const struct arguments *args)
+{
+}
+
+static int mqu_unlink(const struct arguments *args)
+{
+}
+
+static int mqu_send(const struct arguments *args)
+{
+}
+
+static int mqu_recv(const struct arguments *args)
+{
+}
 
 int main(int argc, char **argv)
 {
@@ -107,4 +120,10 @@ int main(int argc, char **argv)
 
 	argp_parse(&argp, argc, argv, 0, 0, &args);
 
+	if (0 == strcmp(args.command, "create")) return mqu_create(&args);
+	else if (0 == strcmp(args.command, "info")) return mqu_info(&args);
+	else if (0 == strcmp(args.command, "unlink")) return mqu_unlink(&args);
+	else if (0 == strcmp(args.command, "send")) return mqu_send(&args);
+	else if (0 == strcmp(args.command, "recv")) return mqu_recv(&args);
+	else usage(&argp);
 }
