@@ -1,6 +1,8 @@
 #include <stdlib.h>
-#include <string.h>
 #include <argp.h>
+#include <mqueue.h>
+#include <errno.h>
+#include <string.h>
 
 #define PROG_NAME "mq"
 
@@ -72,7 +74,8 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
 		   In addition, by setting state->next to the end
 		   of the arguments, we can force argp to stop parsing here and
 		   return. */
-		args->message = state->argv[state->next];
+		args->qname = state->argv[state->next];
+		args->message = state->argv[state->next+1];
 		state->next = state->argc;
 
 		break;
@@ -85,6 +88,18 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
 
 static int mqu_create(const struct arguments *args)
 {
+	struct mq_attr attr;
+	attr.mq_flags = 0;
+	attr.mq_maxmsg = args->maxmsg;
+	attr.mq_msgsize = args->msgsize;
+	attr.mq_curmsgs = 0;
+
+	mqd_t queue = mq_open(args->qname, O_CREAT|O_RDWR|O_EXCL, 0644, &attr);
+
+	if (-1 == queue) {
+		printf("mq_open error: %s\n", strerror(errno));
+		exit(1);
+	}
 }
 
 static int mqu_info(const struct arguments *args)
@@ -93,6 +108,12 @@ static int mqu_info(const struct arguments *args)
 
 static int mqu_unlink(const struct arguments *args)
 {
+	int ret = mq_unlink(args->qname);
+
+	if (0 != ret) {
+		printf("mq_unlink error: %s\n", strerror(errno));
+		exit(1);
+	}
 }
 
 static int mqu_send(const struct arguments *args)
