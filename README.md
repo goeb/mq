@@ -1,5 +1,5 @@
 
-mq - a command line tool to use Posix Message Queues
+# mq - a command line tool to use Posix Message Queues
 
 ```
 Usage: mq [OPTION...] create QNAME
@@ -34,3 +34,8 @@ Examples:
   mq recv /myqueue
   mq unlink /myqueue
 ```
+
+# TODO
+
+- `mq recv /myqueue --follow`
+- `mq recv /myqueue --timeout 1000`
