@@ -48,6 +48,7 @@ static struct argp_option options[] = {
 	{ "maxmsg", 'm', "NUMBER", 0, "Maximum number of messages in queue (create)" },
 	{ "timestamp", 't', 0, 0, "Print a timestamp (send, recv)" },
 	{ "follow", 'f', 0, 0, "Print messages as they are received (recv)" },
+	{ "priority", 'p', "PRIO", 0, "Use priority PRIO, PRIO >= 0 (send)" },
 	{ 0 }
 };
 
@@ -69,6 +70,7 @@ struct arguments
 
 	/* for command 'send' */
 	char *message;
+	int priority;
 };
 
 static error_t parse_opt(int key, char *arg, struct argp_state *state)
@@ -82,6 +84,7 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
 	case 'f': args->follow = 1; break;
 	case 's': args->msgsize = atoi(arg); break;
 	case 'm': args->maxmsg = atoi(arg); break;
+	case 'p': args->priority = atoi(arg); break;
 
 	case ARGP_KEY_NO_ARGS:
 	  argp_usage(state);
@@ -201,7 +204,8 @@ static int cmd_send(const struct arguments *args)
 		if (args->timestamp) fprintf(stderr, "%s ", get_timestamp());
 		fprintf(stderr, "Sending to mq %s: %s\n", args->qname, args->message);
 	}
-	int ret = mq_send(queue, args->message, strlen(args->message)+1, 1); // keep the null terminating char
+	/* Send and keep the null terminating char */
+	int ret = mq_send(queue, args->message, strlen(args->message)+1, args->priority);
 	if (0 != ret) {
 		if (args->timestamp) fprintf(stderr, "%s ", get_timestamp());
 		printf("mq_send error: %s\n", strerror(errno));
@@ -333,6 +337,7 @@ int main(int argc, char **argv)
 	args.blocking = 1;
 	args.follow = 0;
 	args.message = NULL;
+	args.priority = 0;
 
 	argp_parse(&argp, argc, argv, 0, 0, &args);
 
