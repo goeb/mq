@@ -38,4 +38,5 @@ Examples:
 # TODO
 
 - `mq recv /myqueue --follow`
+- `mq recv /myqueue --priority N`
 - `mq recv /myqueue --timeout 1000`

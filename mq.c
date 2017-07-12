@@ -4,6 +4,8 @@
 #include <errno.h>
 #include <string.h>
 #include <stdint.h>
+#include <sys/time.h>
+#include <time.h>
 
 #define PROG_NAME "mq"
 const char *argp_program_version = PROG_NAME " 1.0";
@@ -43,6 +45,7 @@ static struct argp_option options[] = {
 	{ "non-blocking", 'n', 0, 0, "Do not block (send, recv)" },
 	{ "msgsize", 's', "SIZE", 0, "Message size in bytes (create)" },
 	{ "maxmsg", 'm', "NUMBER", 0, "Maximum number of messages in queue (create)" },
+	{ "timestamp", 't', 0, 0, "Print a timestamp (send, recv)" },
 	{ 0 }
 };
 
@@ -56,6 +59,8 @@ struct arguments
 	int maxmsg; /* max number of message */
 	int msgsize; /* size of a message */
 
+
+	int timestamp;
 	/* for command 'recv' */
 	int blocking;
 
@@ -74,6 +79,10 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
 
 	case 'n':
 	  args->blocking = 0;
+	  break;
+
+	case 't':
+	  args->timestamp = 1;
 	  break;
 
 	case 's':
@@ -167,21 +176,44 @@ static int mqu_unlink(const struct arguments *args)
 	return 0;
 }
 
+static char *get_timestamp()
+{
+	static char buffer[256];
+	struct tm date;
+	struct timeval tv;
+	gettimeofday(&tv, 0);
+	localtime_r(&tv.tv_sec, &date);
+	int milliseconds = tv.tv_usec / 1000;
+	snprintf(buffer, sizeof(buffer), "%.4d-%.2d-%.2d %.2d:%.2d:%.2d.%03d",
+			date.tm_year + 1900,
+			date.tm_mon + 1,
+			date.tm_mday,
+			date.tm_hour,
+			date.tm_min,
+			date.tm_sec,
+			milliseconds);
+	return buffer;
+}
+
 static int mqu_send(const struct arguments *args)
 {
 	int oflag = O_WRONLY;
 	if (!args->blocking) oflag |= O_NONBLOCK;
 
-	if (args->verbose) fprintf(stderr, "Opening mq %s (O_WRONLY, %s)\n", args->qname, (oflag & O_NONBLOCK)?"O_NONBLOCK":"");
+	if (args->verbose) fprintf(stderr, "Opening mq %s (O_WRONLY%s)\n", args->qname, (oflag & O_NONBLOCK)?", O_NONBLOCK":"");
 	mqd_t queue = mq_open(args->qname, oflag);
 	if (-1 == queue) {
 		printf("mq_open error: %s\n", strerror(errno));
 		return 1;
 	}
 
-	if (args->verbose) fprintf(stderr, "Sending to mq %s: %s\n", args->qname, args->message);
+	if (args->verbose) {
+		if (args->timestamp) fprintf(stderr, "%s ", get_timestamp());
+		fprintf(stderr, "Sending to mq %s: %s\n", args->qname, args->message);
+	}
 	int ret = mq_send(queue, args->message, strlen(args->message)+1, 1); // keep the null terminating char
 	if (0 != ret) {
+		if (args->timestamp) fprintf(stderr, "%s ", get_timestamp());
 		printf("mq_send error: %s\n", strerror(errno));
 		ret = 1;
 	}
@@ -199,7 +231,9 @@ static int mqu_recv(const struct arguments *args)
 	int oflag = O_RDONLY;
 	if (!args->blocking) oflag |= O_NONBLOCK;
 
-	if (args->verbose) fprintf(stderr, "Opening mq %s (O_RDONLY, %s)\n", args->qname, (oflag & O_NONBLOCK)?"O_NONBLOCK":"");
+	if (args->verbose) {
+		fprintf(stderr, "Opening mq %s (O_RDONLY, %s)\n", args->qname, (oflag & O_NONBLOCK)?"O_NONBLOCK":"");
+	}
 	queue = mq_open(args->qname, oflag);
 	if (-1 == queue) {
 		printf("mq_open error: %s\n", strerror(errno));
@@ -219,6 +253,7 @@ static int mqu_recv(const struct arguments *args)
 	ret = mq_receive(queue, buffer, attr.mq_msgsize, NULL);
 	if (ret >= 0) {
 		/* got a message */
+		if (args->timestamp) printf("%s ", get_timestamp());
 		printf("%s\n", buffer);
 		ret = 0;
 	}
@@ -238,6 +273,7 @@ int main(int argc, char **argv)
 	args.qname = NULL;
 	args.maxmsg = 10;
 	args.msgsize = 1024;
+	args.timestamp = 0;
 	args.blocking = 1;
 	args.message = NULL;
 
