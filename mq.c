@@ -6,6 +6,7 @@
 #include <stdint.h>
 #include <sys/time.h>
 #include <time.h>
+#include <poll.h>
 
 #define PROG_NAME "mq"
 const char *argp_program_version = PROG_NAME " 1.0";
@@ -46,6 +47,7 @@ static struct argp_option options[] = {
 	{ "msgsize", 's', "SIZE", 0, "Message size in bytes (create)" },
 	{ "maxmsg", 'm', "NUMBER", 0, "Maximum number of messages in queue (create)" },
 	{ "timestamp", 't', 0, 0, "Print a timestamp (send, recv)" },
+	{ "follow", 'f', 0, 0, "Print messages as they are received (recv)" },
 	{ 0 }
 };
 
@@ -63,6 +65,7 @@ struct arguments
 	int timestamp;
 	/* for command 'recv' */
 	int blocking;
+	int follow;
 
 	/* for command 'send' */
 	char *message;
@@ -73,25 +76,12 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
 	struct arguments *args = state->input;
 
 	switch (key) {
-	case 'v':
-	  args->verbose = 1;
-	  break;
-
-	case 'n':
-	  args->blocking = 0;
-	  break;
-
-	case 't':
-	  args->timestamp = 1;
-	  break;
-
-	case 's':
-	  args->msgsize = atoi(arg);
-	  break;
-
-	case 'm':
-	  args->maxmsg = atoi(arg);
-	  break;
+	case 'v': args->verbose = 1; break;
+	case 'n': args->blocking = 0; break;
+	case 't': args->timestamp = 1; break;
+	case 'f': args->follow = 1; break;
+	case 's': args->msgsize = atoi(arg); break;
+	case 'm': args->maxmsg = atoi(arg); break;
 
 	case ARGP_KEY_NO_ARGS:
 	  argp_usage(state);
@@ -118,7 +108,7 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
 	return 0;
 }
 
-static int mqu_create(const struct arguments *args)
+static int cmd_create(const struct arguments *args)
 {
 	struct mq_attr attr;
 	attr.mq_flags = 0;
@@ -139,7 +129,7 @@ static int mqu_create(const struct arguments *args)
 	return 0;
 }
 
-static int mqu_info(const struct arguments *args)
+static int cmd_info(const struct arguments *args)
 {
 	struct mq_attr attr;
 	int ret;
@@ -164,7 +154,7 @@ static int mqu_info(const struct arguments *args)
 	return ret;
 }
 
-static int mqu_unlink(const struct arguments *args)
+static int cmd_unlink(const struct arguments *args)
 {
 	if (args->verbose) fprintf(stderr, "Deleting mq %s\n", args->qname);
 	int ret = mq_unlink(args->qname);
@@ -195,7 +185,7 @@ static char *get_timestamp()
 	return buffer;
 }
 
-static int mqu_send(const struct arguments *args)
+static int cmd_send(const struct arguments *args)
 {
 	int oflag = O_WRONLY;
 	if (!args->blocking) oflag |= O_NONBLOCK;
@@ -222,12 +212,9 @@ static int mqu_send(const struct arguments *args)
 	return ret;
 }
 
-static int mqu_recv(const struct arguments *args)
+static mqd_t mqu_open_ro(const struct arguments *args)
 {
 	mqd_t queue;
-	int ret;
-	uint8_t *buffer;
-	struct mq_attr attr;
 	int oflag = O_RDONLY;
 	if (!args->blocking) oflag |= O_NONBLOCK;
 
@@ -235,15 +222,31 @@ static int mqu_recv(const struct arguments *args)
 		fprintf(stderr, "Opening mq %s (O_RDONLY, %s)\n", args->qname, (oflag & O_NONBLOCK)?"O_NONBLOCK":"");
 	}
 	queue = mq_open(args->qname, oflag);
-	if (-1 == queue) {
-		printf("mq_open error: %s\n", strerror(errno));
-		return 1;
-	}
+	if (-1 == queue) printf("mq_open error: %s\n", strerror(errno));
+
+	return queue;
+}
+
+static int mqu_info(mqd_t queue, struct mq_attr *attr)
+{
+	int ret = mq_getattr(queue, attr);
+	if (0 != ret) printf("mq_getattr error: %s\n", strerror(errno));
+	return ret;
+}
+	
+static int cmd_recv(const struct arguments *args)
+{
+	mqd_t queue;
+	int ret;
+	uint8_t *buffer;
+	struct mq_attr attr;
+
+	queue = mqu_open_ro(args);
+	if (-1 == queue) return 1;
 
 	// retrieve the message size
 	ret = mq_getattr(queue, &attr);
 	if (0 != ret) {
-		printf("mq_getattr error: %s\n", strerror(errno));
 		mq_close(queue);
 		return 1;
 	}
@@ -262,6 +265,59 @@ static int mqu_recv(const struct arguments *args)
 	return ret;
 }
 
+static int cmd_recv_follow(const struct arguments *args)
+{
+	mqd_t queue;
+	int ret;
+	uint8_t *buffer;
+	struct mq_attr attr;
+	struct pollfd ufds[1];
+
+	queue = mqu_open_ro(args);
+	if (-1 == queue) return 1;
+
+	// retrieve the message size
+	ret = mq_getattr(queue, &attr);
+	if (0 != ret) {
+		mq_close(queue);
+		return 1;
+	}
+
+	buffer = malloc(attr.mq_msgsize);
+
+	ufds[0].fd = queue;
+	ufds[0].events = POLLIN;
+
+	while (1) {
+		int rv = poll(ufds, 1, -1); // no timeout
+		if (rv == -1) {
+			fprintf(stderr, "poll error: %s\n", strerror(errno));
+		} else if (1 == rv) {
+			if (ufds[0].revents & POLLIN) {
+				// receive the message
+				ret = mq_receive(queue, buffer, attr.mq_msgsize, NULL);
+				if (ret >= 0) {
+					/* got a message */
+					if (args->timestamp) printf("%s ", get_timestamp());
+					printf("%s\n", buffer);
+				} else {
+					fprintf(stderr, "mq_receive error: %s\n", strerror(errno));
+					break;
+				}
+
+			} else {
+				fprintf(stderr, "poll revents != POLLIN (%x)\n", ufds[0].revents);
+				break;
+			}
+		} else {
+			fprintf(stderr, "poll error(2): rv=%d\n", rv);
+		}
+	}
+	mq_close(queue);
+	return 1;
+
+}
+
 int main(int argc, char **argv)
 {
 	struct arguments args;
@@ -275,14 +331,18 @@ int main(int argc, char **argv)
 	args.msgsize = 1024;
 	args.timestamp = 0;
 	args.blocking = 1;
+	args.follow = 0;
 	args.message = NULL;
 
 	argp_parse(&argp, argc, argv, 0, 0, &args);
 
-	if (0 == strcmp(args.command, "create")) return mqu_create(&args);
-	else if (0 == strcmp(args.command, "info")) return mqu_info(&args);
-	else if (0 == strcmp(args.command, "unlink")) return mqu_unlink(&args);
-	else if (0 == strcmp(args.command, "send")) return mqu_send(&args);
-	else if (0 == strcmp(args.command, "recv")) return mqu_recv(&args);
+	if (0 == strcmp(args.command, "create")) return cmd_create(&args);
+	else if (0 == strcmp(args.command, "info")) return cmd_info(&args);
+	else if (0 == strcmp(args.command, "unlink")) return cmd_unlink(&args);
+	else if (0 == strcmp(args.command, "send")) return cmd_send(&args);
+	else if (0 == strcmp(args.command, "recv")) {
+	   if (args.follow) return cmd_recv_follow(&args);
+	   else return cmd_recv(&args);
+	}
 	else usage(&argp);
 }
