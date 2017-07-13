@@ -36,6 +36,35 @@ static char args_doc[] =
 	"recv QNAME"
 	;
 
+#define LOG_ERR(...) \
+		do { fprintf(stderr, __VA_ARGS__); fprintf(stderr, "\n"); } while (0)
+
+#define LOG_VERBOSE(_args, ...) \
+		do { if (_args->verbose) LOG_ERR(__VA_ARGS__); } while (0)
+
+#define LOG_DATA(_args, ...) \
+		do { if (_args->timestamp) printf("%s ", get_timestamp()); \
+		     printf(__VA_ARGS__); printf("\n"); } while (0)
+
+static char *get_timestamp()
+{
+	static char buffer[256];
+	struct tm date;
+	struct timeval tv;
+	gettimeofday(&tv, 0);
+	localtime_r(&tv.tv_sec, &date);
+	int milliseconds = tv.tv_usec / 1000;
+	snprintf(buffer, sizeof(buffer), "%.4d-%.2d-%.2d %.2d:%.2d:%.2d.%03d",
+			date.tm_year + 1900,
+			date.tm_mon + 1,
+			date.tm_mday,
+			date.tm_hour,
+			date.tm_min,
+			date.tm_sec,
+			milliseconds);
+	return buffer;
+}
+
 void usage(const struct argp *argp)
 {
 	argp_help(argp, stderr, ARGP_HELP_STD_HELP, PROG_NAME);
@@ -121,12 +150,12 @@ static int cmd_create(const struct arguments *args)
 
 	mode_t mode = 0644;
 
-	if (args->verbose) fprintf(stderr, "Opening mq %s (O_CREAT, O_RDWR, O_EXCL, %o)\n", args->qname, mode);
+	LOG_VERBOSE(args, "Opening mq %s (O_CREAT, O_RDWR, O_EXCL, %o)", args->qname, mode);
 
 	mqd_t queue = mq_open(args->qname, O_CREAT|O_RDWR|O_EXCL, mode, &attr);
 
 	if (-1 == queue) {
-		printf("mq_open error: %s\n", strerror(errno));
+		LOG_ERR("mq_open error: %s", strerror(errno));
 		return 1;
 	}
 	return 0;
@@ -137,20 +166,20 @@ static int cmd_info(const struct arguments *args)
 	struct mq_attr attr;
 	int ret;
 
-	if (args->verbose) fprintf(stderr, "Opening mq %s (O_RDONLY)\n", args->qname);
+	LOG_VERBOSE(args, "Opening mq %s (O_RDONLY)", args->qname);
 	mqd_t queue = mq_open(args->qname, O_RDONLY);
 	if (-1 == queue) {
-		printf("mq_open error: %s\n", strerror(errno));
+		LOG_ERR("mq_open error: %s", strerror(errno));
 		return 1;
 	}
 
 	ret = mq_getattr(queue, &attr);
 	if (0 != ret) {
-		printf("mq_getattr error: %s\n", strerror(errno));
+		LOG_ERR("mq_getattr error: %s", strerror(errno));
 		ret = 1;
 	} else {
-		printf("%s: maxmsg=%ld, msgsize=%ld, curmsgs=%ld\n",
-				args->qname, attr.mq_maxmsg, attr.mq_msgsize, attr.mq_curmsgs);
+		LOG_DATA(args, "%s: maxmsg=%ld, msgsize=%ld, curmsgs=%ld",
+				 args->qname, attr.mq_maxmsg, attr.mq_msgsize, attr.mq_curmsgs);
 	}
 
 	mq_close(queue);
@@ -159,33 +188,14 @@ static int cmd_info(const struct arguments *args)
 
 static int cmd_unlink(const struct arguments *args)
 {
-	if (args->verbose) fprintf(stderr, "Deleting mq %s\n", args->qname);
+	LOG_VERBOSE(args, "Deleting mq %s", args->qname);
 	int ret = mq_unlink(args->qname);
 
 	if (0 != ret) {
-		printf("mq_unlink error: %s\n", strerror(errno));
+		LOG_ERR("mq_unlink error: %s", strerror(errno));
 		return 1;
 	}
 	return 0;
-}
-
-static char *get_timestamp()
-{
-	static char buffer[256];
-	struct tm date;
-	struct timeval tv;
-	gettimeofday(&tv, 0);
-	localtime_r(&tv.tv_sec, &date);
-	int milliseconds = tv.tv_usec / 1000;
-	snprintf(buffer, sizeof(buffer), "%.4d-%.2d-%.2d %.2d:%.2d:%.2d.%03d",
-			date.tm_year + 1900,
-			date.tm_mon + 1,
-			date.tm_mday,
-			date.tm_hour,
-			date.tm_min,
-			date.tm_sec,
-			milliseconds);
-	return buffer;
 }
 
 static int cmd_send(const struct arguments *args)
@@ -193,22 +203,19 @@ static int cmd_send(const struct arguments *args)
 	int oflag = O_WRONLY;
 	if (!args->blocking) oflag |= O_NONBLOCK;
 
-	if (args->verbose) fprintf(stderr, "Opening mq %s (O_WRONLY%s)\n", args->qname, (oflag & O_NONBLOCK)?", O_NONBLOCK":"");
+	LOG_VERBOSE(args, "Opening mq %s (O_WRONLY%s)", args->qname, (oflag & O_NONBLOCK)?", O_NONBLOCK":"");
 	mqd_t queue = mq_open(args->qname, oflag);
 	if (-1 == queue) {
-		printf("mq_open error: %s\n", strerror(errno));
+		LOG_ERR("mq_open error: %s", strerror(errno));
 		return 1;
 	}
 
-	if (args->verbose) {
-		if (args->timestamp) fprintf(stderr, "%s ", get_timestamp());
-		fprintf(stderr, "Sending to mq %s: %s\n", args->qname, args->message);
-	}
+	if (args->verbose) LOG_DATA(args, "> %s", args->message);
+
 	/* Send and keep the null terminating char */
 	int ret = mq_send(queue, args->message, strlen(args->message)+1, args->priority);
 	if (0 != ret) {
-		if (args->timestamp) fprintf(stderr, "%s ", get_timestamp());
-		printf("mq_send error: %s\n", strerror(errno));
+		LOG_ERR("mq_send error: %s", strerror(errno));
 		ret = 1;
 	}
 
@@ -222,11 +229,11 @@ static mqd_t mqu_open_ro(const struct arguments *args)
 	int oflag = O_RDONLY;
 	if (!args->blocking) oflag |= O_NONBLOCK;
 
-	if (args->verbose) {
-		fprintf(stderr, "Opening mq %s (O_RDONLY, %s)\n", args->qname, (oflag & O_NONBLOCK)?"O_NONBLOCK":"");
-	}
+	LOG_VERBOSE(args, "Opening mq %s (O_RDONLY%s)",
+			    args->qname, (oflag & O_NONBLOCK)?", O_NONBLOCK":"");
+
 	queue = mq_open(args->qname, oflag);
-	if (-1 == queue) printf("mq_open error: %s\n", strerror(errno));
+	if (-1 == queue) LOG_ERR("mq_open error: %s", strerror(errno));
 
 	return queue;
 }
@@ -234,7 +241,7 @@ static mqd_t mqu_open_ro(const struct arguments *args)
 static int mqu_info(mqd_t queue, struct mq_attr *attr)
 {
 	int ret = mq_getattr(queue, attr);
-	if (0 != ret) printf("mq_getattr error: %s\n", strerror(errno));
+	if (0 != ret) LOG_ERR("mq_getattr error: %s", strerror(errno));
 	return ret;
 }
 	
@@ -260,8 +267,7 @@ static int cmd_recv(const struct arguments *args)
 	ret = mq_receive(queue, buffer, attr.mq_msgsize, NULL);
 	if (ret >= 0) {
 		/* got a message */
-		if (args->timestamp) printf("%s ", get_timestamp());
-		printf("%s\n", buffer);
+		LOG_DATA(args, "%s", buffer);
 		ret = 0;
 	}
 
@@ -295,26 +301,25 @@ static int cmd_recv_follow(const struct arguments *args)
 	while (1) {
 		int rv = poll(ufds, 1, -1); // no timeout
 		if (rv == -1) {
-			fprintf(stderr, "poll error: %s\n", strerror(errno));
+			LOG_ERR("poll error: %s", strerror(errno));
 		} else if (1 == rv) {
 			if (ufds[0].revents & POLLIN) {
 				// receive the message
 				ret = mq_receive(queue, buffer, attr.mq_msgsize, NULL);
 				if (ret >= 0) {
 					/* got a message */
-					if (args->timestamp) printf("%s ", get_timestamp());
-					printf("%s\n", buffer);
+					LOG_DATA(args, "%s", buffer);
 				} else {
-					fprintf(stderr, "mq_receive error: %s\n", strerror(errno));
+					LOG_ERR("mq_receive error: %s", strerror(errno));
 					break;
 				}
 
 			} else {
-				fprintf(stderr, "poll revents != POLLIN (%x)\n", ufds[0].revents);
+				LOG_ERR("poll revents != POLLIN (%x)", ufds[0].revents);
 				break;
 			}
 		} else {
-			fprintf(stderr, "poll error(2): rv=%d\n", rv);
+			LOG_ERR("poll error(2): rv=%d", rv);
 		}
 	}
 	mq_close(queue);
