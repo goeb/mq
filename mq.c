@@ -243,13 +243,6 @@ static mqd_t mqu_open_ro(const struct arguments *args)
 	return queue;
 }
 
-static int mqu_info(mqd_t queue, struct mq_attr *attr)
-{
-	int ret = mq_getattr(queue, attr);
-	if (0 != ret) LOG_ERR("mq_getattr error: %s", strerror(errno));
-	return ret;
-}
-	
 static int cmd_recv(const struct arguments *args)
 {
 	mqd_t queue;
@@ -269,7 +262,7 @@ static int cmd_recv(const struct arguments *args)
 
 	buffer = malloc(attr.mq_msgsize);
 
-	ret = mq_receive(queue, buffer, attr.mq_msgsize, NULL);
+	ret = mq_receive(queue, (void*)buffer, attr.mq_msgsize, NULL);
 	if (ret >= 0) {
 		/* got a message */
 		LOG_DATA(args, "%s", buffer);
@@ -310,7 +303,7 @@ static int cmd_recv_follow(const struct arguments *args)
 		} else if (1 == rv) {
 			if (ufds[0].revents & POLLIN) {
 				// receive the message
-				ret = mq_receive(queue, buffer, attr.mq_msgsize, NULL);
+				ret = mq_receive(queue, (void*)buffer, attr.mq_msgsize, NULL);
 				if (ret >= 0) {
 					/* got a message */
 					LOG_DATA(args, "%s", buffer);
