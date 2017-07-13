@@ -9,13 +9,23 @@ Usage: mq [OPTION...] create QNAME
   or:  mq [OPTION...] recv QNAME
 A command line tool to use Posix Message Queues from the shell
 
-  -f, --follow               Print messages as they are received (recv)
-  -m, --maxmsg=NUMBER        Maximum number of messages in queue (create)
-  -n, --non-blocking         Do not block (send, recv)
-  -p, --priority=PRIO        Use priority PRIO, PRIO >= 0 (send)
-  -s, --msgsize=SIZE         Message size in bytes (create)
-  -t, --timestamp            Print a timestamp (send, recv)
+ Options:
+  -t, --timestamp            Print a timestamp before lines of data
   -v, --verbose              Produce verbose output
+
+ Options for create:
+  -m, --maxmsg=NUMBER        Maximum number of messages in queue
+  -s, --msgsize=SIZE         Message size in bytes
+
+ Options for recv:
+  -f, --follow               Print messages as they are received
+
+ Options for send:
+  -p, --priority=PRIO        Use priority PRIO, PRIO >= 0
+
+ Options for send, recv:
+  -n, --non-blocking         Do not block (send, recv)
+
   -?, --help                 Give this help list
       --usage                Give a short usage message
   -V, --version              Print program version
@@ -38,7 +48,4 @@ Examples:
   mq unlink /myqueue
 ```
 
-# TODO
 
-- `mq recv /myqueue --timeout 1000`
-- in the help, group command-specific options by command

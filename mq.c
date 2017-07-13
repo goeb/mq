@@ -71,13 +71,18 @@ void usage(const struct argp *argp)
 }
 
 static struct argp_option options[] = {
+	{ 0, 0, 0, 0, "Options:" },
 	{ "verbose", 'v', 0, 0, "Produce verbose output" },
+	{ "timestamp", 't', 0, 0, "Print a timestamp before lines of data" },
+	{ 0, 0, 0, 0, "Options for create:" },
+	{ "msgsize", 's', "SIZE", 0, "Message size in bytes" },
+	{ "maxmsg", 'm', "NUMBER", 0, "Maximum number of messages in queue" },
+	{ 0, 0, 0, 0, "Options for recv:" },
+	{ "follow", 'f', 0, 0, "Print messages as they are received" },
+	{ 0, 0, 0, 0, "Options for send:" },
+	{ "priority", 'p', "PRIO", 0, "Use priority PRIO, PRIO >= 0" },
+	{ 0, 0, 0, 0, "Options for send, recv:" },
 	{ "non-blocking", 'n', 0, 0, "Do not block (send, recv)" },
-	{ "msgsize", 's', "SIZE", 0, "Message size in bytes (create)" },
-	{ "maxmsg", 'm', "NUMBER", 0, "Maximum number of messages in queue (create)" },
-	{ "timestamp", 't', 0, 0, "Print a timestamp (send, recv)" },
-	{ "follow", 'f', 0, 0, "Print messages as they are received (recv)" },
-	{ "priority", 'p', "PRIO", 0, "Use priority PRIO, PRIO >= 0 (send)" },
 	{ 0 }
 };
 
