@@ -7,6 +7,7 @@
 #include <sys/time.h>
 #include <time.h>
 #include <poll.h>
+#include <unistd.h>
 
 #define PROG_NAME "mq"
 const char *argp_program_version = PROG_NAME " 1.0";
@@ -20,13 +21,19 @@ static char doc[] =
 	"  send      Send a message to a message queue\n"
 	"  recv      Receive and print a message from a message queue\n"
 	"\n"
-	"Examples:\n"
+    "Delimiters:\n"
+    "  n         new line (LF) [default]\n"
+    "  z         zero (NUL)\n"
+    "\n"
+    "\n"
+    "Examples:\n"
 	"  mq create /myqueue\n"
 	"  mq send /myqueue \"hello\" -n\n"
 	"  mq info /myqueue\n"
 	"  mq recv /myqueue\n"
 	"  mq unlink /myqueue\n"
-					 ;
+    "\n"
+                     ;
 
 static char args_doc[] =
 	"create QNAME\n"
@@ -36,15 +43,31 @@ static char args_doc[] =
 	"recv QNAME"
 	;
 
+static void print_hexa(char *buffer, size_t size)
+{
+    int i;
+    for (i=0; i<size; i++) {
+        if (i > 0) printf(" ");
+        printf("%02x", buffer[i]);
+    }
+}
+
 #define LOG_ERR(...) \
 		do { fprintf(stderr, __VA_ARGS__); fprintf(stderr, "\n"); } while (0)
 
 #define LOG_VERBOSE(_args, ...) \
-		do { if (_args->verbose) LOG_ERR(__VA_ARGS__); } while (0)
+        do { if (_args->verbose) { \
+            printf("%s ", get_timestamp()); \
+            printf(__VA_ARGS__); \
+            printf("\n"); } \
+        } while (0)
 
-#define LOG_DATA(_args, ...) \
-		do { if (_args->timestamp) printf("%s ", get_timestamp()); \
-		     printf(__VA_ARGS__); printf("\n"); } while (0)
+#define LOG_VERBOSE_HEXA(_args, buffer, size) \
+        do { if (_args->verbose) { \
+            printf("%s ", get_timestamp()); \
+            print_hexa(buffer, size); /* TODO */ \
+            printf("\n"); } \
+        } while (0)
 
 static char *get_timestamp()
 {
@@ -83,6 +106,7 @@ static struct argp_option options[] = {
 	{ "priority", 'p', "PRIO", 0, "Use priority PRIO, PRIO >= 0" },
 	{ 0, 0, 0, 0, "Options for send, recv:" },
 	{ "non-blocking", 'n', 0, 0, "Do not block (send, recv)" },
+    { "delimiter", 'd', "CHAR", 0, "Character to delimit the end of messages (see delimiters)" },
 	{ 0 }
 };
 
@@ -96,6 +120,7 @@ struct arguments
 	int maxmsg; /* max number of message */
 	int msgsize; /* size of a message */
 
+    char delimiter;
 
 	int timestamp;
 	/* for command 'recv' */
@@ -104,6 +129,7 @@ struct arguments
 
 	/* for command 'send' */
 	char *message;
+    size_t msglen;
 	int priority;
 };
 
@@ -119,6 +145,14 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
 	case 's': args->msgsize = atoi(arg); break;
 	case 'm': args->maxmsg = atoi(arg); break;
 	case 'p': args->priority = atoi(arg); break;
+    case 'd':
+        if (0 == strcmp("n", arg)) args->delimiter = '\n';
+        else if (0 == strcmp("z", arg)) args->delimiter = '\0';
+        else {
+            LOG_ERR("Invalid delimiter speicifer '%s' (use 'n' or 'z')", arg);
+            return ARGP_ERR_UNKNOWN;
+        }
+        break;
 
 	case ARGP_KEY_NO_ARGS:
 	  argp_usage(state);
@@ -126,8 +160,10 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
 	case ARGP_KEY_ARG:
 		if (!args->command) args->command = arg;
 		else if (!args->qname) args->qname = arg;
-		else if (0 == strcmp(args->command, "send") && !args->message) args->message = arg;
-		else {
+        else if (0 == strcmp(args->command, "send") && !args->message) {
+            args->message = arg;
+            args->msglen = strlen(arg);
+        } else {
 			/* too many arguments */
 			argp_usage(state);
 		}
@@ -183,8 +219,8 @@ static int cmd_info(const struct arguments *args)
 		LOG_ERR("mq_getattr error: %s", strerror(errno));
 		ret = 1;
 	} else {
-		LOG_DATA(args, "%s: maxmsg=%ld, msgsize=%ld, curmsgs=%ld",
-				 args->qname, attr.mq_maxmsg, attr.mq_msgsize, attr.mq_curmsgs);
+        printf("%s: maxmsg=%ld, msgsize=%ld, curmsgs=%ld",
+               args->qname, attr.mq_maxmsg, attr.mq_msgsize, attr.mq_curmsgs);
 	}
 
 	mq_close(queue);
@@ -215,10 +251,10 @@ static int cmd_send(const struct arguments *args)
 		return 1;
 	}
 
-	if (args->verbose) LOG_DATA(args, "> %s", args->message);
+    LOG_VERBOSE_HEXA(args, args->message, args->msglen);
 
-	/* Send and keep the null terminating char */
-	int ret = mq_send(queue, args->message, strlen(args->message)+1, args->priority);
+    /* Send */
+    int ret = mq_send(queue, args->message, args->msglen, args->priority);
 	if (0 != ret) {
 		LOG_ERR("mq_send error: %s", strerror(errno));
 		ret = 1;
@@ -262,12 +298,17 @@ static int cmd_recv(const struct arguments *args)
 
 	buffer = malloc(attr.mq_msgsize);
 
-	ret = mq_receive(queue, (void*)buffer, attr.mq_msgsize, NULL);
-	if (ret >= 0) {
+    ssize_t n = mq_receive(queue, (void*)buffer, attr.mq_msgsize, NULL);
+    if (n >= 0) {
 		/* got a message */
-		LOG_DATA(args, "%s", buffer);
-		ret = 0;
-	}
+        LOG_VERBOSE_HEXA(args, buffer, n);
+        write(1, buffer, n);
+        write(1, &args->delimiter, 1);
+        ret = 0;
+    } else {
+        LOG_ERR("mq_receive error: %s", strerror(errno));
+        ret = 1;
+    }
 
 	mq_close(queue);
 	return ret;
@@ -296,6 +337,7 @@ static int cmd_recv_follow(const struct arguments *args)
 	ufds[0].fd = queue;
 	ufds[0].events = POLLIN;
 
+    ret = 1;
 	while (1) {
 		int rv = poll(ufds, 1, -1); // no timeout
 		if (rv == -1) {
@@ -303,10 +345,12 @@ static int cmd_recv_follow(const struct arguments *args)
 		} else if (1 == rv) {
 			if (ufds[0].revents & POLLIN) {
 				// receive the message
-				ret = mq_receive(queue, (void*)buffer, attr.mq_msgsize, NULL);
-				if (ret >= 0) {
+                size_t n = mq_receive(queue, (void*)buffer, attr.mq_msgsize, NULL);
+                if (n >= 0) {
 					/* got a message */
-					LOG_DATA(args, "%s", buffer);
+                    LOG_VERBOSE_HEXA(args, buffer, n);
+                    write(1, buffer, n);
+                    write(1, &args->delimiter, 1); /* delimiter */
 				} else {
 					LOG_ERR("mq_receive error: %s", strerror(errno));
 					break;
@@ -314,11 +358,11 @@ static int cmd_recv_follow(const struct arguments *args)
 
 			} else {
 				LOG_ERR("poll revents != POLLIN (%x)", ufds[0].revents);
-				break;
+                break;
 			}
 		} else {
 			LOG_ERR("poll error(2): rv=%d", rv);
-		}
+        }
 	}
 	mq_close(queue);
 	return 1;
@@ -340,7 +384,9 @@ int main(int argc, char **argv)
 	args.blocking = 1;
 	args.follow = 0;
 	args.message = NULL;
+    args.msglen = 0;
 	args.priority = 0;
+    args.delimiter = '\n';
 
 	argp_parse(&argp, argc, argv, 0, 0, &args);
 
