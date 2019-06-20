@@ -219,7 +219,7 @@ static int cmd_info(const struct arguments *args)
 		LOG_ERR("mq_getattr error: %s", strerror(errno));
 		ret = 1;
 	} else {
-        printf("%s: maxmsg=%ld, msgsize=%ld, curmsgs=%ld",
+        printf("%s: maxmsg=%ld, msgsize=%ld, curmsgs=%ld\n",
                args->qname, attr.mq_maxmsg, attr.mq_msgsize, attr.mq_curmsgs);
 	}
 
