@@ -43,10 +43,9 @@ static char args_doc[] =
 	"recv QNAME"
 	;
 
-static void print_hexa(char *buffer, size_t size)
+static void print_hexa(const uint8_t *buffer, size_t size)
 {
-	int i;
-	for (i=0; i<size; i++) {
+	for (size_t i=0; i<size; i++) {
 		if (i > 0) printf(" ");
 		printf("%02x", buffer[i]);
 	}
@@ -69,7 +68,7 @@ static void print_hexa(char *buffer, size_t size)
 			printf("\n"); } \
 		} while (0)
 
-static char *get_timestamp()
+static char *get_timestamp(void)
 {
 	static char buffer[256];
 	struct tm date;
@@ -88,9 +87,9 @@ static char *get_timestamp()
 	return buffer;
 }
 
-void usage(const struct argp *argp)
+static void usage(const struct argp *argp)
 {
-	argp_help(argp, stderr, ARGP_HELP_STD_HELP, PROG_NAME);
+	argp_help(argp, stderr, ARGP_HELP_STD_HELP, (char *)PROG_NAME);
 }
 
 static struct argp_option options[] = {
@@ -155,7 +154,8 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
 		break;
 
 	case ARGP_KEY_NO_ARGS:
-	  argp_usage(state);
+		argp_usage(state);
+		break;
 
 	case ARGP_KEY_ARG:
 		if (!args->command) args->command = arg;
@@ -167,13 +167,13 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
 			/* too many arguments */
 			argp_usage(state);
 		}
-
 		break;
 
 	case ARGP_KEY_END:
 		if (!args->command) argp_usage(state);
 		if (!args->qname) argp_usage(state);
 		if (0 == strcmp(args->command, "send") && !args->message) argp_usage(state);
+		return ARGP_ERR_UNKNOWN;
 
 	default:
 		return ARGP_ERR_UNKNOWN;
@@ -251,7 +251,7 @@ static int cmd_send(const struct arguments *args)
 		return 1;
 	}
 
-	LOG_VERBOSE_HEXA(args, args->message, args->msglen);
+	LOG_VERBOSE_HEXA(args, (const uint8_t *)args->message, args->msglen);
 
 	/* Send */
 	int ret = mq_send(queue, args->message, args->msglen, args->priority);
@@ -345,7 +345,7 @@ static int cmd_recv_follow(const struct arguments *args)
 		} else if (1 == rv) {
 			if (ufds[0].revents & POLLIN) {
 				// receive the message
-				size_t n = mq_receive(queue, (void*)buffer, attr.mq_msgsize, NULL);
+				ssize_t n = mq_receive(queue, (void*)buffer, attr.mq_msgsize, NULL);
 				if (n >= 0) {
 					/* got a message */
 					LOG_VERBOSE_HEXA(args, buffer, n);
