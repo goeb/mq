@@ -24,6 +24,7 @@ static char doc[] =
 	"Delimiters:\n"
 	"  n         new line (LF) [default]\n"
 	"  z         zero (NUL)\n"
+	"  x         no delimiter\n"
 	"\n"
 	"\n"
 	"Examples:\n"
@@ -147,8 +148,9 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
 	case 'd':
 		if (0 == strcmp("n", arg)) args->delimiter = '\n';
 		else if (0 == strcmp("z", arg)) args->delimiter = '\0';
+		else if (0 == strcmp("x", arg)) args->delimiter = 'x';
 		else {
-			LOG_ERR("Invalid delimiter speicifer '%s' (use 'n' or 'z')", arg);
+			LOG_ERR("Invalid delimiter speicifer '%s' (use 'n' or 'z' or 'x')", arg);
 			return ARGP_ERR_UNKNOWN;
 		}
 		break;
@@ -279,6 +281,30 @@ static mqd_t mqu_open_ro(const struct arguments *args)
 	return queue;
 }
 
+// Precondition: sz is greater than zero.
+static void write_msg_with_delimiter(const struct arguments *args, uint8_t *buffer, size_t sz) {
+	size_t messageRemainingBytes = sz;
+        do {
+		ssize_t messageWrittenBytes = write(1, buffer, messageRemainingBytes);
+        	if(messageWrittenBytes == -1) {
+			LOG_ERR("mq_receive error writing message: %s", strerror(errno));
+        		exit(1);
+        	} else {
+        		messageRemainingBytes = messageRemainingBytes - (size_t)messageWrittenBytes;
+        	}
+        } while (messageRemainingBytes > 0);
+        if(args->delimiter != 'x') {
+        	ssize_t delimiterWrittenBytes = write(1, &args->delimiter, 1);
+        	if(delimiterWrittenBytes == -1) {
+        		LOG_ERR("mq_receive error writing delimiter: %s", strerror(errno));
+        		exit(1);
+        	} else if(delimiterWrittenBytes != 1) {
+        		fprintf(stderr, "mq_receive error: Expected single byte to be written\n");
+        		exit(1);
+        	}
+        }
+}
+
 static int cmd_recv(const struct arguments *args)
 {
 	mqd_t queue;
@@ -302,8 +328,7 @@ static int cmd_recv(const struct arguments *args)
 	if (n >= 0) {
 		/* got a message */
 		LOG_VERBOSE_HEXA(args, buffer, n);
-		write(1, buffer, n);
-		write(1, &args->delimiter, 1);
+                write_msg_with_delimiter(args,buffer,(size_t)n);
 		ret = 0;
 	} else {
 		LOG_ERR("mq_receive error: %s", strerror(errno));
@@ -349,8 +374,7 @@ static int cmd_recv_follow(const struct arguments *args)
 				if (n >= 0) {
 					/* got a message */
 					LOG_VERBOSE_HEXA(args, buffer, n);
-					write(1, buffer, n);
-					write(1, &args->delimiter, 1); /* delimiter */
+                			write_msg_with_delimiter(args,buffer,(size_t)n);
 				} else {
 					LOG_ERR("mq_receive error: %s", strerror(errno));
 					break;
