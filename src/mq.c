@@ -290,6 +290,7 @@ static void write_msg_with_delimiter(const struct arguments *args, uint8_t *buff
 			LOG_ERR("mq_receive error writing message: %s", strerror(errno));
         		exit(1);
         	} else {
+                        buffer = buffer + (size_t)messageWrittenBytes;
         		messageRemainingBytes = messageRemainingBytes - (size_t)messageWrittenBytes;
         	}
         } while (messageRemainingBytes > 0);
