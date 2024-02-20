@@ -39,7 +39,7 @@ static char args_doc[] =
 	"create QNAME\n"
 	"info QNAME\n"
 	"unlink QNAME\n"
-	"send QNAME MESSAGE\n"
+	"send QNAME [MESSAGE]\n"
 	"recv QNAME"
 	;
 
@@ -172,7 +172,6 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
 	case ARGP_KEY_END:
 		if (!args->command) argp_usage(state);
 		if (!args->qname) argp_usage(state);
-		if (0 == strcmp(args->command, "send") && !args->message) argp_usage(state);
 		return ARGP_ERR_UNKNOWN;
 
 	default:
@@ -253,8 +252,30 @@ static int cmd_send(const struct arguments *args)
 
 	LOG_VERBOSE_HEXA(args, (const uint8_t *)args->message, args->msglen);
 
-	/* Send */
-	int ret = mq_send(queue, args->message, args->msglen, args->priority);
+	int ret;
+	// Read the message from standard input if no message argument is passed
+	if (!args->message) {
+		char *message = malloc(sizeof(char) * args->msgsize);
+		if (! message) {
+			LOG_ERR("mq_send error: failed to allocate stdin message buffer: details %s", strerror(errno));
+			return 1;
+		}
+
+		ssize_t message_length = read(STDIN_FILENO, message, args->msgsize);
+		if (message_length == -1) {
+			LOG_ERR("mq_send error: failed to read from stdin: details: %s", strerror(errno));
+			return 1;
+		}
+		/* Send message*/
+		ret = mq_send(queue, message, message_length, args->priority);
+		free(message);
+	}
+	// Otherwise use the message argument
+	else {
+		/* Send message*/
+		ret = mq_send(queue, args->message, args->msglen, args->priority);
+	}
+
 	if (0 != ret) {
 		LOG_ERR("mq_send error: %s", strerror(errno));
 		ret = 1;

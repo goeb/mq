@@ -5,7 +5,7 @@
 Usage: mq [OPTION...] create QNAME
   or:  mq [OPTION...] info QNAME
   or:  mq [OPTION...] unlink QNAME
-  or:  mq [OPTION...] send QNAME MESSAGE
+  or:  mq [OPTION...] send QNAME [MESSAGE]
   or:  mq [OPTION...] recv QNAME
 A command line tool to use Posix Message Queues from the shell
 
@@ -30,6 +30,8 @@ A command line tool to use Posix Message Queues from the shell
       --usage                Give a short usage message
   -V, --version              Print program version
 
+If the MESSAGE parameter is not provided for the send command, the message data will be read from standard input.
+
 Mandatory or optional arguments to long options are also mandatory or optional
 for any corresponding short options.
 
@@ -43,6 +45,7 @@ Commands:
 Examples:
   mq create /myqueue
   mq send /myqueue "hello" -n
+  echo "hello" | mq send /myqueue
   mq info /myqueue
   mq recv /myqueue
   mq unlink /myqueue
